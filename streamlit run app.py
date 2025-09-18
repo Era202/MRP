@@ -258,7 +258,10 @@ if uploaded_file:
             for col in pivot_by_order.columns
         ]
 
+        # 🔹 إضافة عمود MRP Contor
         if not mrp_df.empty:
+            pivot_by_order = pivot_by_order.merge(mrp_df[["Component", "MRP Contor"]], on="Component", how="left")
+
             merged_df = merged_df.merge(mrp_df[["Component", "MRP Contor"]], on="Component", how="left")
 
             component_bom_map = merged_df.groupby(
@@ -400,19 +403,73 @@ if uploaded_file:
             )
             st.plotly_chart(fig_coverage, use_container_width=True)
 
-        # رسم بياني للمكونات الأكثر حرجية حسب MRP Contor
+        # رسم بياني للمكونات الأكثر حرجية مرتبة حسب كمية الطلب
         top_critical = filtered_analysis.nsmallest(10, "Coverage Percentage")
         if not top_critical.empty:
+            # تحويل الأعمدة إلى نص قبل الدمج
+            top_critical = top_critical.copy()
+            top_critical["Component"] = top_critical["Component"].astype(str)
+            top_critical["Component Description"] = top_critical["Component Description"].astype(str)
+            
+            # إنشاء تسمية مختصرة تجمع بين الكود والوصف
+            top_critical["Short_Label"] = top_critical["Component"] + " - " + top_critical["Component Description"].str[:20]
+            
+            # ترتيب المكونات حسب كمية الطلب (من الأكبر إلى الأصغر)
+            top_critical = top_critical.sort_values("Required Component Quantity", ascending=True)
+            
             fig_critical = px.bar(
                 top_critical,
-                x="Component",
-                y="Coverage Percentage",
-                color="MRP Contor",
-                title="أقل 10 مكونات في نسبة التغطية",
-                labels={"Coverage Percentage": "نسبة التغطية %", "Component": "المكون", "MRP Contor": "MRP Controller"},
-                text="Coverage Percentage"
+                y="Short_Label",  # التسمية المختصرة على المحور Y
+                x="Required Component Quantity",  # كمية الطلب على المحور X
+                color="Coverage Percentage",  # التلوين حسب نسبة التغطية
+                orientation='h',  # رسم أفقي
+                title="أقل 10 مكونات في نسبة التغطية (مرتبة حسب كمية الطلب)",
+                labels={
+                    "Required Component Quantity": "كمية الطلب المطلوبة", 
+                    "Short_Label": "المكون", 
+                    "Coverage Percentage": "نسبة التغطية %",
+                    "MRP Contor": "MRP Controller"
+                },
+                hover_data={
+                    "Component": True,
+                    "Component Description": True,
+                    "Current Stock": True,
+                    "Coverage Percentage": ":.1f",
+                    "MRP Contor": True,
+                    "Component Order Type": True
+                },
+                color_continuous_scale="RdYlGn_r"  # مقياس ألوان عكسي (أحمر للأقل تغطية)
             )
-            fig_critical.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
+            
+            # تخصيص التنسيق
+            fig_critical.update_traces(
+                hovertemplate=(
+                    "<b>%{customdata[0]}</b><br>"
+                    "الوصف: %{customdata[1]}<br>"
+                    "الرصيد الحالي: %{customdata[2]:,}<br>"
+                    "الطلب المطلوب: %{x:,}<br>"
+                    "نسبة التغطية: %{customdata[3]:.1f}%<br>"
+                    "MRP Controller: %{customdata[4]}<br>"
+                    "نوع الطلب: %{customdata[5]}"
+                )
+            )
+            
+            # تحسين تخطيط الرسم البياني
+            fig_critical.update_layout(
+                yaxis={'categoryorder':'total ascending'},  # ترتيب حسب القيمة
+                xaxis_title="كمية الطلب المطلوبة",
+                yaxis_title="المكون",
+                hovermode="closest",
+                coloraxis_colorbar=dict(title="نسبة التغطية %"),
+                height=500  # زيادة الارتفاع لعرض أفضل
+            )
+            
+            # إضافة تسميات القيم على الأعمدة
+            fig_critical.update_traces(
+                text=top_critical["Required Component Quantity"].apply(lambda x: f"{x:,.0f}"),
+                textposition='outside'
+            )
+            
             st.plotly_chart(fig_critical, use_container_width=True)
 
         # رسم بياني إضافي لتوزيع المكونات حسب MRP Contor والحالة
@@ -463,7 +520,7 @@ if uploaded_file:
             pivot_df = pivot_df.sort_values(by="Month", key=lambda x: x.map(month_order))
 
             st.subheader("📊 توزيع الكميات الشهرية حسب نوع الأمر")
-            html_table = "<table border='1' style='border-collapse: collapse; width:100%; text-align:center; color:black;'>"
+            html_table = "<table border='1' style='border-collapse: collapse; width:100%; text-align:center; color:green;'>"
             html_table += "<tr style='background-color:#4CAF50; color:white;'><th>الشهر</th><th>E</th><th>L</th><th>الإجمالي</th><th>E%</th><th>L%</th></tr>"
             for _, row in pivot_df.iterrows():
                 html_table += "<tr>"
