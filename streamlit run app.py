@@ -1,0 +1,539 @@
+# ==============================================================================
+# MRP Analysis Tool Final Version with Stock Analysis and Component Order Type
+# Developed by: Reda Roshdy
+# Date: 17-Sep-2025
+# ==============================================================================
+
+# -------------------------------
+# 1. استدعاء المكتبات اللازمة
+# -------------------------------
+import streamlit as st
+import pandas as pd
+import datetime
+from io import BytesIO
+import zipfile
+import calendar
+import plotly.express as px
+
+# ==============================================================================
+# 2. إعداد التكوين والأعمدة (تحسين جديد)
+# ==============================================================================
+
+# قاموس مركزي لأسماء الأعمدة - يسهل التعديل مستقبلاً
+COLUMN_NAMES = {
+    "material": "Material",
+    "material_desc": "Material Description", 
+    "order_type": "Order Type",
+    "component": "Component",
+    "component_desc": "Component Description",
+    "component_uom": "Component UoM",
+    "component_qty": "Component Quantity",
+    "mrp_controller": "MRP Contor",
+    "current_stock": "Current Stock",
+    "component_order_type": "Component Order Type"  # العمود الجديد
+}
+
+# ==============================================================================
+# 3. الدوال المساعدة (Functions)
+# ==============================================================================
+
+@st.cache_data
+def load_and_validate_data(uploaded_file):
+    """
+    هذه الدالة تقرأ ملف الإكسل وتقوم بالتحقق منه وتعيد الـ DataFrames.
+    بسبب وجود @st.cache_data فوقها، لن يتم تنفيذها إلا مرة واحدة لنفس الملف،
+    مما يسرع أداء التطبيق بشكل هائل.
+    """
+    try:
+        xls = pd.ExcelFile(uploaded_file, engine='openpyxl')
+
+        # التحقق من وجود الشيتات المطلوبة
+        required_sheets = ["plan", "Component"]
+        missing_sheets = [sheet for sheet in required_sheets if sheet not in xls.sheet_names]
+        if missing_sheets:
+            st.error(f"❌ الملف لا يحتوي على الأوراق المطلوبة: {', '.join(missing_sheets)}")
+            st.stop()
+            
+        plan_df = xls.parse("plan")
+        component_df = xls.parse("Component")
+        mrp_df = xls.parse("MRP Contor") if "MRP Contor" in xls.sheet_names else pd.DataFrame()
+
+        # التحقق من أن الجداول ليست فارغة
+        if plan_df.empty or component_df.empty:
+            st.error("❌ أحد جداول 'plan' أو 'Component' فارغ. يرجى التحقق من الملف.")
+            st.stop()
+        
+        # التحقق من الأعمدة الأساسية (باستخدام القاموس المركزي)
+        required_plan_columns = [COLUMN_NAMES["material"], COLUMN_NAMES["material_desc"], COLUMN_NAMES["order_type"]]
+        if not all(col in plan_df.columns for col in required_plan_columns):
+            st.error(f"❌ جدول الخطة لا يحتوي على الأعمدة المطلوبة: {', '.join(required_plan_columns)}")
+            st.stop()
+
+        required_component_columns = [COLUMN_NAMES["material"], COLUMN_NAMES["component"], COLUMN_NAMES["component_qty"]]
+        if not all(col in component_df.columns for col in required_component_columns):
+            st.error(f"❌ جدول المكونات لا يحتوي على الأعمدة المطلوبة: {', '.join(required_component_columns)}")
+            st.stop()
+
+        # التحقق من وجود عمود الرصيد الحالي في جدول المكونات
+        if COLUMN_NAMES["current_stock"] not in component_df.columns:
+            st.warning("⚠️ جدول المكونات لا يحتوي على عمود 'الرصيد الحالي'. سيتم افتراض قيمة صفر للجميع.")
+            component_df[COLUMN_NAMES["current_stock"]] = 0
+
+        # التحقق من وجود عمود نوع طلب المكون في جدول المكونات
+        if COLUMN_NAMES["component_order_type"] not in component_df.columns:
+            st.warning("⚠️ جدول المكونات لا يحتوي على عمود 'نوع طلب المكون'. سيتم افتراض 'غير محدد' للجميع.")
+            component_df[COLUMN_NAMES["component_order_type"]] = "غير محدد"
+
+        return plan_df, component_df, mrp_df
+
+    except Exception as e:
+        st.error(f"حدث خطأ أثناء قراءة الملف: {e}")
+        st.stop()
+
+# ==============================================================================
+# 4. واجهة المستخدم الرئيسية للتطبيق
+# ==============================================================================
+
+# إعداد الصفحة
+st.set_page_config(page_title="🔥 MRP Tool", page_icon="📂", layout="wide")
+st.title("📂 برنامج استخراج وحفظ نتائج الـ MRP")
+
+st.markdown(
+    "<p style='font-size:16px; font-weight:bold;'>📂 اختر ملف الخطة الشهرية Excel</p>",
+    unsafe_allow_html=True
+)
+uploaded_file = st.file_uploader("", type=["xlsx"], label_visibility="collapsed")
+
+if uploaded_file:
+    # استدعاء الدالة المخبأة (cached function) لتحميل البيانات بسرعة
+    plan_df, component_df, mrp_df = load_and_validate_data(uploaded_file)
+    
+    # استخراج أعمدة التواريخ مرة واحدة وإعادة استخدامها (تحسين الكفاءة)
+    date_cols = [c for c in plan_df.columns if isinstance(c, (datetime.datetime, pd.Timestamp))]
+    
+    # نسخة من plan_df للمعالجة اللاحقة لتبقى النسخة الأصلية كما هي
+    plan_df_processed = plan_df.copy()
+
+    with st.spinner("⏳ جاري معالجة البيانات وعرض النتائج..."):
+
+        # -------------------------------
+        # تجهيز البيانات الأساسية
+        # -------------------------------
+        plan_melted = plan_df.melt(
+            id_vars=["Material", "Material Description", "Order Type"],
+            var_name="Date",
+            value_name="Planned Quantity"
+        )
+        plan_melted["Date"] = pd.to_datetime(plan_melted["Date"], errors='coerce')
+        merged_df = pd.merge(plan_melted, component_df, on="Material", how="left")
+        merged_df["Required Component Quantity"] = merged_df["Planned Quantity"] * merged_df["Component Quantity"]
+
+        # -------------------------------
+        # الملخص السريع (عرض فقط)
+        # -------------------------------
+        total_models = plan_df["Material"].nunique()
+        total_components = component_df["Component"].nunique()
+        total_boms = len(component_df)
+        empty_mrp_count = mrp_df["Component"].isna().sum() if not mrp_df.empty else 0
+
+        diff_uom = component_df.groupby("Component")["Component UoM"].nunique()
+        diff_uom = diff_uom[diff_uom > 1]
+        total_diff_uom = len(diff_uom)
+
+        if total_diff_uom > 0:
+            diff_uom_str = ", ".join(map(str, diff_uom.index))
+            diff_uom_color = "red"
+        else:
+            diff_uom_str = "لا يوجد"
+            diff_uom_color = "green"
+
+        missing_boms = set(plan_df["Material"]) - set(component_df["Material"])
+        total_missing_boms = len(missing_boms)
+        missing_boms_html = (
+            f"<span style='color:red;'>{', '.join(map(str, missing_boms))}</span>"
+            if missing_boms else "<span style='color:green;'>لا يوجد</span>"
+        )
+
+        # إحصائية جديدة لأنواع طلب المكونات
+        purchase_count = len(component_df[component_df[COLUMN_NAMES["component_order_type"]] == "شراء"])
+        manufacturing_count = len(component_df[component_df[COLUMN_NAMES["component_order_type"]] == "تصنيع"])
+        undefined_count = len(component_df[component_df[COLUMN_NAMES["component_order_type"]] == "غير محدد"])
+
+        st.markdown(f"""
+        <div style="direction:rtl; text-align:right; font-size:20px;">
+        <span style="font-size:22px; color:#1976d2;">📌 <b>ملخص نتائج الخطة </b></span>
+        <br><br>
+        <ul style="list-style-type:none; padding-right:0;">
+
+          <li>🟢 <b>{total_models}</b> موديلات بوتاجاز بالخطة</li>
+          <li>🔵 <b>{total_components}</b> عدد المكونات المستخدمة</li>
+          <li>🟠 <b>{total_boms}</b> إجمالي عدد مكونات الـ BOMs</li>
+
+          <li>{"❌" if empty_mrp_count>0 else "✅"} 
+              <b style="color:{'red' if empty_mrp_count>0 else 'green'};">
+              {empty_mrp_count}</b> مكونات بدون MRP Contor</li>
+
+          <li>{"⚠️" if total_diff_uom>0 else "✅"} 
+              <b style="color:{'red' if total_diff_uom>0 else 'green'};">
+              {total_diff_uom}</b> مكونات لها أكثر من وحدة: 
+              <span style="color:{diff_uom_color};">{diff_uom_str}</span>
+          </li>
+
+          <li>{"⚠️" if total_missing_boms>0 else "✅"} 
+              <b style="color:{'red' if total_missing_boms>0 else 'green'};">
+              {total_missing_boms}</b> منتجات موجودة بالخطة لكن بدون BOM: 
+              {missing_boms_html}
+          </li>
+
+        </ul>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # عرض إحصائية أنواع طلب المكونات
+        st.markdown(f"""
+        <div style="direction:rtl; text-align:right; font-size:20px;">
+        <span style="font-size:22px; color:#1976d2;">📌 <b>ملخص أنواع طلب المكونات</b></span>
+        <br><br>
+        <ul style="list-style-type:none; padding-right:0;">
+            <li>🛒 <b>{purchase_count}</b> مكونات شراء</li>
+            <li>🏭 <b>{manufacturing_count}</b> مكونات تصنيع</li>
+            <li>❓ <b>{undefined_count}</b> مكونات غير محددة</li>
+        </ul>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # -------------------------------
+        # Need_By_Date
+        # -------------------------------
+        result_date = merged_df.groupby(
+            ["Component", "Component Description", "Component UoM", "Current Stock", "Component Order Type", "Date"]
+        )["Required Component Quantity"].sum().reset_index()
+
+        pivot_by_date = result_date.pivot_table(
+            index=["Component", "Component Description", "Component UoM", "Current Stock", "Component Order Type"],
+            columns="Date",
+            values="Required Component Quantity",
+            aggfunc="sum",
+            fill_value=0
+        ).reset_index()
+
+        if not mrp_df.empty:
+            pivot_by_date = pd.merge(
+                pivot_by_date,
+                mrp_df[["Component", "MRP Contor"]],
+                on="Component",
+                how="left"
+            )
+
+            # إعادة ترتيب الأعمدة
+            cols = pivot_by_date.columns.tolist()
+            fixed_order = ["Component", "Component Description", "MRP Contor", "Component UoM", "Current Stock", "Component Order Type"]
+            other_cols = [c for c in cols if c not in fixed_order]
+            pivot_by_date = pivot_by_date[fixed_order + other_cols]
+
+        # تنسيق أسماء الأعمدة (التواريخ تبقى dd mmm)
+        pivot_by_date.columns = [
+            col.strftime("%d %b") if isinstance(col, pd.Timestamp) else col
+            for col in pivot_by_date.columns
+        ]
+
+        # -------------------------------
+        # Need_By_Order Type
+        # -------------------------------
+        result_order = merged_df.groupby(
+            ["Component", "Component Description", "Component UoM", "Current Stock", "Component Order Type", "Order Type", "Date"]
+        )["Required Component Quantity"].sum().reset_index()
+
+        pivot_by_order = result_order.pivot_table(
+            index=["Component", "Component Description", "Component UoM", "Current Stock", "Component Order Type"],
+            columns=["Date", "Order Type"],
+            values="Required Component Quantity",
+            aggfunc="sum",
+            fill_value=0
+        ).reset_index()
+
+        pivot_by_order.columns = [
+            f"{col[1][0]} - {col[0].strftime('%d %b')}" if isinstance(col, tuple) and isinstance(col[0], pd.Timestamp)
+            else col if isinstance(col, str) else col[0]
+            for col in pivot_by_order.columns
+        ]
+
+        if not mrp_df.empty:
+            merged_df = merged_df.merge(mrp_df[["Component", "MRP Contor"]], on="Component", how="left")
+
+            component_bom_map = merged_df.groupby(
+                ["MRP Contor", "Component", "Material", "Component Order Type"]
+            ).agg({
+                "Order Type": lambda x: ','.join(sorted(set(x))),
+                "Planned Quantity": "sum"
+            }).reset_index()
+
+            component_bom_map["OrderType_Quantity"] = component_bom_map["Order Type"] + " (" + component_bom_map["Planned Quantity"].astype(str) + ")"
+
+            component_bom_pivot = component_bom_map.pivot_table(
+                index=["MRP Contor", "Component", "Component Order Type"],
+                columns="Material",
+                values="OrderType_Quantity",
+                aggfunc=lambda x: ','.join(x),
+                fill_value=""
+            )
+
+        # -------------------------------
+        # تحليل الرصيد والمكونات الحرجة مع فلتر MRP Contor ونوع الطلب
+        # -------------------------------
+        st.markdown("---")
+        st.subheader("📊 تحليل حرجية الرصيد ونسبة التغطية")
+
+        # حساب إجمالي الاحتياج والرصيد لكل مكون
+        component_analysis = merged_df.groupby([
+            "Component", "Component Description", "Component UoM", 
+            "Current Stock", "Component Order Type"
+        ]).agg({
+            "Required Component Quantity": "sum",
+            "Order Type": lambda x: ", ".join(sorted(set(x)))
+        }).reset_index()
+
+        # دمج بيانات MRP Contor إذا كانت موجودة
+        if not mrp_df.empty:
+            component_analysis = pd.merge(
+                component_analysis,
+                mrp_df[["Component", "MRP Contor"]],
+                on="Component",
+                how="left"
+            )
+            # استبدال القيم الفارغة بـ "غير محدد"
+            component_analysis["MRP Contor"] = component_analysis["MRP Contor"].fillna("غير محدد")
+        else:
+            component_analysis["MRP Contor"] = "غير محدد"
+
+        # حساب نسبة التغطية
+        component_analysis["Coverage Percentage"] = (component_analysis["Current Stock"] / component_analysis["Required Component Quantity"] * 100).round(1)
+        component_analysis["Coverage Status"] = component_analysis["Coverage Percentage"].apply(
+            lambda x: "🟢 كافية" if x >= 100 else "🟡 جزئية" if x >= 50 else "🔴 غير كافية"
+        )
+
+        # تحديد الأولوية بناء على نسبة التغطية والكمية المطلوبة
+        component_analysis["Priority"] = component_analysis.apply(
+            lambda row: "🔥 عاجل" if row["Coverage Percentage"] < 30 and row["Required Component Quantity"] > 1000 
+            else "⚠️ متوسط" if row["Coverage Percentage"] < 50 
+            else "✅ منخفض", 
+            axis=1
+        )
+
+        # فلتر حسب MRP Contor
+        mrp_controllers = sorted(component_analysis["MRP Contor"].unique())
+        selected_mrp = st.multiselect(
+            "🔍 تصفية حسب MRP Contor:",
+            options=mrp_controllers,
+            default=mrp_controllers,
+            help="اختر واحد أو أكثر من MRP Contor لعرضها"
+        )
+
+        # فلتر جديد حسب نوع طلب المكون
+        component_order_types = sorted(component_analysis["Component Order Type"].unique())
+        selected_order_types = st.multiselect(
+            "🔍 تصفية حسب نوع طلب المكون:",
+            options=component_order_types,
+            default=component_order_types,
+            help="اختر نوع طلب المكون (شراء/تصنيع/غير محدد)"
+        )
+
+        # تطبيق الفلترين معاً
+        filtered_analysis = component_analysis[
+            (component_analysis["MRP Contor"].isin(selected_mrp)) &
+            (component_analysis["Component Order Type"].isin(selected_order_types))
+        ]
+
+        # عرض جدول التحليل
+        st.dataframe(filtered_analysis.sort_values("Coverage Percentage"))
+
+        # إحصائيات ونسب التغطية بعد التصفية
+        total_components = len(filtered_analysis)
+        sufficient_coverage = len(filtered_analysis[filtered_analysis["Coverage Percentage"] >= 100])
+        partial_coverage = len(filtered_analysis[(filtered_analysis["Coverage Percentage"] >= 50) & (filtered_analysis["Coverage Percentage"] < 100)])
+        insufficient_coverage = len(filtered_analysis[filtered_analysis["Coverage Percentage"] < 50])
+        critical_components = len(filtered_analysis[filtered_analysis["Priority"] == "🔥 عاجل"])
+
+        st.markdown(f"""
+        <div style="direction:rtl; text-align:right; font-size:18px;">
+        <span style="font-size:20px; color:#1976d2;">📈 <b>إحصائيات نسبة التغطية</b></span>
+        <br><br>
+        <ul style="list-style-type:none; padding-right:0;">
+            <li>🟢 <b>{sufficient_coverage}</b> مكونات ذات تغطية كافية ({sufficient_coverage/total_components*100:.1f}%)</li>
+            <li>🟡 <b>{partial_coverage}</b> مكونات ذات تغطية جزئية ({partial_coverage/total_components*100:.1f}%)</li>
+            <li>🔴 <b>{insufficient_coverage}</b> مكونات ذات تغطية غير كافية ({insufficient_coverage/total_components*100:.1f}%)</li>
+            <li>🔥 <b style="color:red;">{critical_components}</b> مكونات حرجة تحتاج اهتمام عاجل</li>
+        </ul>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # تحليل إضافي لنوع طلب المكون
+        st.markdown("---")
+        st.subheader("📊 تحليل المكونات حسب نوع الطلب")
+
+        order_type_stats = filtered_analysis.groupby("Component Order Type").agg({
+            "Component": "count",
+            "Required Component Quantity": "sum",
+            "Current Stock": "sum"
+        }).reset_index()
+
+        order_type_stats["Coverage Percentage"] = (order_type_stats["Current Stock"] / order_type_stats["Required Component Quantity"] * 100).round(1)
+
+        st.dataframe(order_type_stats)
+
+        # المكونات الحرجة التي تحتاج اهتمام عاجل بعد التصفية
+        critical_items = filtered_analysis[filtered_analysis["Priority"] == "🔥 عاجل"]
+        if not critical_items.empty:
+            st.error("🚨 المكونات الحرجة التي تحتاج إلى اهتمام عاجل:")
+            st.dataframe(critical_items[["Component", "Component Description", "MRP Contor", "Component Order Type", "Current Stock", "Required Component Quantity", "Coverage Percentage", "Priority"]])
+        else:
+            st.success("✅ لا توجد مكونات حرجة تحتاج إلى اهتمام عاجل")
+
+        # رسم بياني لتوزيع نسبة التغطية حسب MRP Contor
+        if len(selected_mrp) > 0:
+            fig_coverage = px.pie(
+                filtered_analysis, 
+                names="Coverage Status", 
+                title="توزيع المكونات حسب حالة التغطية",
+                color="Coverage Status",
+                color_discrete_map={"🟢 كافية": "green", "🟡 جزئية": "orange", "🔴 غير كافية": "red"}
+            )
+            st.plotly_chart(fig_coverage, use_container_width=True)
+
+        # رسم بياني للمكونات الأكثر حرجية حسب MRP Contor
+        top_critical = filtered_analysis.nsmallest(10, "Coverage Percentage")
+        if not top_critical.empty:
+            fig_critical = px.bar(
+                top_critical,
+                x="Component",
+                y="Coverage Percentage",
+                color="MRP Contor",
+                title="أقل 10 مكونات في نسبة التغطية",
+                labels={"Coverage Percentage": "نسبة التغطية %", "Component": "المكون", "MRP Contor": "MRP Controller"},
+                text="Coverage Percentage"
+            )
+            fig_critical.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
+            st.plotly_chart(fig_critical, use_container_width=True)
+
+        # رسم بياني إضافي لتوزيع المكونات حسب MRP Contor والحالة
+        if len(selected_mrp) > 0:
+            fig_mrp_coverage = px.sunburst(
+                filtered_analysis,
+                path=['MRP Contor', 'Coverage Status'],
+                values='Required Component Quantity',
+                title='توزيع المكونات حسب MRP Contor وحالة التغطية'
+            )
+            st.plotly_chart(fig_mrp_coverage, use_container_width=True)
+
+        # رسم بياني لتوزيع المكونات حسب نوع الطلب
+        fig_order_type = px.pie(
+            filtered_analysis, 
+            names="Component Order Type", 
+            title="توزيع المكونات حسب نوع الطلب",
+            color="Component Order Type"
+        )
+        st.plotly_chart(fig_order_type, use_container_width=True)
+
+        # -------------------------------
+        # جدول الكميات الشهرية + الرسم البياني
+        # -------------------------------
+        if date_cols:
+            orders_summary = plan_df.melt(
+                id_vars=[COLUMN_NAMES["material"], COLUMN_NAMES["order_type"]], 
+                value_vars=date_cols,
+                var_name="Month", 
+                value_name="Quantity"
+            )
+            orders_summary["Month"] = pd.to_datetime(orders_summary["Month"]).dt.month_name()
+            orders_grouped = orders_summary.groupby(["Month", COLUMN_NAMES["order_type"]]).agg({"Quantity": "sum"}).reset_index()
+            pivot_df = orders_grouped.pivot_table(index="Month", columns=COLUMN_NAMES["order_type"], values="Quantity", aggfunc="sum", fill_value=0).reset_index()
+            
+            if "E" not in pivot_df.columns: pivot_df["E"] = 0
+            if "L" not in pivot_df.columns: pivot_df["L"] = 0
+
+            pivot_df["الإجمالي"] = pivot_df["E"] + pivot_df["L"]
+            total_sum = pivot_df["الإجمالي"].sum()
+            if total_sum > 0:
+                pivot_df["E%"] = ((pivot_df["E"] / pivot_df["الإجمالي"]) * 100).round(1).astype(str) + "%"
+                pivot_df["L%"] = ((pivot_df["L"] / pivot_df["الإجمالي"]) * 100).round(1).astype(str) + "%"
+            else:
+                 pivot_df["E%"], pivot_df["L%"] = "0.0%", "0.0%"
+
+            month_order = {m: i for i, m in enumerate(calendar.month_name) if m}
+            pivot_df = pivot_df.sort_values(by="Month", key=lambda x: x.map(month_order))
+
+            st.subheader("📊 توزيع الكميات الشهرية حسب نوع الأمر")
+            html_table = "<table border='1' style='border-collapse: collapse; width:100%; text-align:center; color:black;'>"
+            html_table += "<tr style='background-color:#4CAF50; color:white;'><th>الشهر</th><th>E</th><th>L</th><th>الإجمالي</th><th>E%</th><th>L%</th></tr>"
+            for _, row in pivot_df.iterrows():
+                html_table += "<tr>"
+                html_table += f"<td style='color:blue; font-weight:bold;'>{row['Month']}</td><td>{int(row.get('E', 0))}</td><td>{int(row.get('L', 0))}</td><td>{int(row.get('الإجمالي', 0))}</td><td>{row.get('E%', '')}</td><td>{row.get('L%', '')}</td>"
+                html_table += "</tr>"
+            html_table += "</table>"
+            st.markdown(f"<div style='direction:rtl;'>{html_table}</div>", unsafe_allow_html=True)
+
+            # تحسين الرسم البياني بإضافة تسميات عربية
+            fig = px.bar(
+                pivot_df, 
+                x="Month", 
+                y=["E", "L"], 
+                barmode="group", 
+                text_auto=True, 
+                title="رسم بياني لتوزيع الكميات",
+                labels={"value": "الكمية", "variable": "نوع الأمر", "Month": "الشهر"},
+                template="streamlit"
+            )
+            st.plotly_chart(fig, use_container_width=True)
+            st.markdown("---")
+
+        # -------------------------------
+        # تحويل رؤوس الأعمدة التي تحتوي على تواريخ إلى صيغة مختصرة "يوم شهر"
+        # -------------------------------
+        plan_df.columns = [
+            col.strftime("%d %b") if isinstance(col, (datetime.datetime, pd.Timestamp)) else col
+            for col in plan_df.columns
+        ]
+
+        # -------------------------------
+        # زر إنشاء النسخة المضغوطة
+        # -------------------------------
+        if st.button("🗜️ اضغط هنا لإنشاء النسخة المضغوطة"):
+            current_date = datetime.datetime.now().strftime("%d_%b_%Y")
+
+            excel_buffer = BytesIO()
+            with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+                plan_df.to_excel(writer, sheet_name="Plan", index=False)
+                pivot_by_date.to_excel(writer, sheet_name="Need_By_Date", index=False)
+                pivot_by_order.to_excel(writer, sheet_name="Need_By_Order Type", index=False)
+                component_analysis.to_excel(writer, sheet_name="Stock_Coverage_Analysis", index=False)
+                component_bom_pivot.reset_index().to_excel(writer, sheet_name="Component_in_BOMs", index=False)
+                component_df.to_excel(writer, sheet_name="Component", index=False)
+                if not mrp_df.empty:
+                    mrp_df.to_excel(writer, sheet_name="MRP Contor", index=False)
+            excel_buffer.seek(0)
+
+            zip_buffer = BytesIO()
+            with zipfile.ZipFile(zip_buffer, "w") as zipf:
+                zipf.writestr(f"All_Component_Results_{current_date}.xlsx", excel_buffer.getvalue())
+            zip_buffer.seek(0)
+
+            st.subheader("🔥 تحميل النسخة الكاملة مضغوطة")
+            st.download_button(
+                label=" 📊 تحميل الملف المضغوط",
+                data=zip_buffer,
+                file_name=f"All_Component_Results_{current_date}.zip",
+                mime="application/zip"
+            )
+
+            st.success("✅ تم إنشاء النسخة المضغوطة بنجاح، وجميع الشيتات موجودة داخل Excel")
+
+# --- التذييل ---
+st.markdown(
+    """
+    <hr>
+    <div style="text-align:center; direction:rtl; font-size:14px; color:gray;">
+        ✨ تم التنفيذ بواسطة <b>م / رضا رشدي</b> – جميع الحقوق محفوظة © 2025 ✨
+    </div>
+    """,
+    unsafe_allow_html=True
+)
