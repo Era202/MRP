@@ -155,9 +155,26 @@ if uploaded_file:
         )
 
         # إحصائية جديدة لأنواع طلب المكونات
-        purchase_count = len(component_df[component_df[COLUMN_NAMES["component_order_type"]] == "شراء"])
-        manufacturing_count = len(component_df[component_df[COLUMN_NAMES["component_order_type"]] == "تصنيع"])
-        undefined_count = len(component_df[component_df[COLUMN_NAMES["component_order_type"]] == "غير محدد"])
+#        purchase_count = len(component_df[component_df[COLUMN_NAMES["component_order_type"]] == "شراء"])
+ #       manufacturing_count = len(component_df[component_df[COLUMN_NAMES["component_order_type"]] == "تصنيع"])
+  #      undefined_count = len(component_df[component_df[COLUMN_NAMES["component_order_type"]] == "غير محدد"])
+        # -------------------------------
+        # إحصائية جديدة لأنواع طلب المكونات
+        # -------------------------------
+
+        # خريطة الأكواد إلى النصوص
+        order_type_map = {
+            "F": "شراء",
+            "E": "تصنيع"
+        }
+
+        # إضافة عمود جديد بالوصف العربي
+        component_df["Order_Type_Label"] = component_df["Component Order Type"].map(order_type_map).fillna("غير محدد")
+
+        # حساب الإحصائيات
+        purchase_count = (component_df["Order_Type_Label"] == "شراء").sum()         # عدد المكونات شراء
+        manufacturing_count = (component_df["Order_Type_Label"] == "تصنيع").sum()   # عدد المكونات تصنيع
+        undefined_count = (component_df["Order_Type_Label"] == "غير محدد").sum()    # عدد المكونات غير محددة
 
         st.markdown(f"""
         <div style="direction:rtl; text-align:right; font-size:20px;">
@@ -594,3 +611,4 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
+
