@@ -21,18 +21,17 @@ import plotly.express as px
 
 # قاموس مركزي لأسماء الأعمدة - يسهل التعديل مستقبلاً
 COLUMN_NAMES = {
-    "material": "Material",
-    "material_desc": "Material Description", 
-    "order_type": "Order Type",
-    "component": "Component",
-    "component_desc": "Component Description",
-    "component_uom": "Component UoM",
-    "component_qty": "Component Quantity",
-    "mrp_controller": "MRP Contor",
-    "current_stock": "Current Stock",
-    "component_order_type": "Component Order Type"  # العمود الجديد
+    "material": ["Material", "Item", "code", "Code", "المادة"],
+    "material_desc": ["Material Description", "Description", "وصف"],
+    "order_type": ["Order Type", "OT", "نوع الطلب"],
+    "component": ["Component", "Comp", "المكون"],
+    "component_desc": ["Component Description", "Comp Desc", " المسمى", "وصف المكون"],
+    "component_uom": ["Component UoM", "UoM", "الوحدة"],
+    "component_qty": ["Component Quantity", "Qty", "كمية المكون"],
+    "mrp_controller": ["MRP Contor", "MRP Controller", "مسؤول MRP"],
+    "current_stock": ["Current Stock", "Stock", "المخزون الحالي", "Unrestricted"],
+    "component_order_type": ["Component Order Type", "Order Category", "نوع أمر المكون", "Procurement Type"]
 }
-
 # ==============================================================================
 # 3. الدوال المساعدة (Functions)
 # ==============================================================================
@@ -611,4 +610,5 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
+
 
