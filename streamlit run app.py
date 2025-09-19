@@ -95,7 +95,7 @@ def load_and_validate_data(uploaded_file):
 
 # إعداد الصفحة
 st.set_page_config(page_title="🔥 MRP Tool", page_icon="📂", layout="wide")
-st.title("📂 برنامج استخراج وحفظ نتائج الـ MRP")
+st.subheader("📂 برنامج استخراج وحفظ نتائج الـ MRP")
 
 st.markdown(
     "<p style='font-size:16px; font-weight:bold;'>📂 اختر ملف الخطة الشهرية Excel</p>",
@@ -610,6 +610,7 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
+
 
 
 
