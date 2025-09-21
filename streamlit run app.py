@@ -180,10 +180,10 @@ if uploaded_file:
         # إضافة عمود جديد بالوصف العربي
         component_df["Order_Type_Label"] = component_df["Component Order Type"].map(order_type_map).fillna("غير محدد")
 
-        # حساب الإحصائيات
-        purchase_count = (component_df["Order_Type_Label"] == "شراء").sum()         # عدد المكونات شراء
-        manufacturing_count = (component_df["Order_Type_Label"] == "تصنيع").sum()   # عدد المكونات تصنيع
-        undefined_count = (component_df["Order_Type_Label"] == "غير محدد").sum()    # عدد المكونات غير محددة
+        # حساب الإحصائيات بعد توحيد الأعمدة
+        purchase_count = component_df.loc[component_df["Order_Type_Label"] == "شراء", "Component"].nunique()        # عدد المكونات شراء
+        manufacturing_count = component_df.loc[component_df["Order_Type_Label"] == "تصنيع", "Component"].nunique()  # عدد المكونات تصنيع
+        undefined_count = component_df.loc[component_df["Order_Type_Label"] == "غير محدد", "Component"].nunique()   # عدد المكونات غير محددة
 
         st.markdown(f"""
         <div style="direction:rtl; text-align:right; font-size:20px;">
@@ -613,6 +613,7 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
+
 
 
 
