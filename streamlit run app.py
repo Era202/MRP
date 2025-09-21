@@ -100,7 +100,7 @@ def load_and_validate_data(uploaded_file):
 # ==============================================================================
 
 st.set_page_config(page_title="🔥 MRP Tool", page_icon="📂", layout="wide")
-st.header("📂 MRP الاصدار الذكى من البرنامج لتحليل واستخراج وحفظ نتائج الـ")
+st.header("📂 MRP الاصدار الذكى من برنامج تحليل واستخراج وحفظ نتائج الـ")
 st.markdown("<p style='font-size:16px; font-weight:bold;'>📂 اختر ملف الخطة الشهرية Excel</p>", unsafe_allow_html=True)
 
 uploaded_file = st.file_uploader("", type=["xlsx"])
@@ -613,6 +613,7 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
+
 
 
 
