@@ -571,9 +571,9 @@ if uploaded_file:
         ]
 
         # -------------------------------
-        # زر إنشاء النسخة المضغوطة
+        # زر إنشاء النسخة 
         # -------------------------------
-        if st.button("🗜️ اضغط هنا لإنشاء النسخة المضغوطة"):
+        if st.button("🗜️ اضغط هنا لإنشاء النسخة الكاملة"):
             current_date = datetime.datetime.now().strftime("%d_%b_%Y")
 
             excel_buffer = BytesIO()
@@ -588,20 +588,22 @@ if uploaded_file:
                     mrp_df.to_excel(writer, sheet_name="MRP Contor", index=False)
             excel_buffer.seek(0)
 
-            zip_buffer = BytesIO()
-            with zipfile.ZipFile(zip_buffer, "w") as zipf:
-                zipf.writestr(f"All_Component_Results_{current_date}.xlsx", excel_buffer.getvalue())
-            zip_buffer.seek(0)
+#            zip_buffer = BytesIO()
+         #   with zipfile.ZipFile(zip_buffer, "w") as zipf:
+          #      zipf.writestr(f"All_Component_Results_{current_date}.xlsx", excel_buffer.getvalue())
+           # zip_buffer.seek(0)
 
-            st.subheader("🔥 تحميل النسخة الكاملة مضغوطة")
+            st.subheader("🔥 تحميل النسخة الإكسل الكاملة ")
             st.download_button(
-                label=" 📊 تحميل الملف المضغوط",
-                data=zip_buffer,
-                file_name=f"All_Component_Results_{current_date}.zip",
-                mime="application/zip"
+                label=" 📊  تحميل ملف الإكسل",
+             #   data=zip_buffer,
+                data=excel_buffer, 
+                file_name=f"All_Component_Results_{current_date}.xlsx",
+#                mime="application/zip"
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
-            st.success("✅ تم إنشاء النسخة المضغوطة بنجاح، وجميع الشيتات موجودة داخل Excel")
+            st.success("✅ تم إنشاء النسخة الكاملة بنجاح، وجميع الشيتات موجودة داخل Excel")
 
 # --- التذييل ---
 st.markdown(
@@ -613,6 +615,7 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
+
 
 
 
