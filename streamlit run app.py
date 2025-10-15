@@ -185,6 +185,29 @@ if uploaded_file:
         manufacturing_count = component_df.loc[component_df["Order_Type_Label"] == "تصنيع", "Component"].nunique()  # عدد المكونات تصنيع
         undefined_count = component_df.loc[component_df["Order_Type_Label"] == "غير محدد", "Component"].nunique()   # عدد المكونات غير محددة
 
+        # -------------------------------
+        # إنشاء DataFrame للملخص لحفظه في الإكسل
+        # -------------------------------
+        summary_data = [
+            ["📌 ملخص نتائج الخطة", "", ""],
+            ["🟢 موديلات بوتاجاز بالخطة", total_models, ""],
+            ["🔵 عدد المكونات المستخدمة", total_components, ""],
+            ["🟠 إجمالي عدد مكونات الـ BOMs", total_boms, ""],
+            ["✅ مكونات بدون MRP Contor", empty_mrp_count, ""],
+            ["⚠️ مكونات لها أكثر من وحدة", total_diff_uom, diff_uom_str],
+            ["✅ منتجات موجودة بالخطة لكن بدون BOM", total_missing_boms, missing_boms_html.replace('<span style=\'color:green;\'>', '').replace('</span>', '').replace('<span style=\'color:red;\'>', '')],
+            ["", "", ""],
+            ["🔹 ملخص أنواع طلب المكونات", "", ""],
+            ["🛒 مكونات شراء", purchase_count, ""],
+            ["🏭 مكونات تصنيع", manufacturing_count, ""],
+            ["❓ مكونات غير محددة", undefined_count, ""],
+            ["", "", ""],
+            ["📊 إحصائيات نسبة التغطية", "", ""],
+            ["تاريخ الإنشاء", datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), ""]
+        ]
+        
+        summary_df = pd.DataFrame(summary_data, columns=["البند", "القيمة", "ملاحظات"])
+
         st.markdown(f"""
         <div style="direction:rtl; text-align:right; font-size:20px;">
         <span style="font-size:22px; color:#1976d2;">📌 <b>ملخص نتائج الخطة </b></span>
@@ -375,6 +398,20 @@ if uploaded_file:
         partial_coverage = len(filtered_analysis[(filtered_analysis["Coverage Percentage"] >= 50) & (filtered_analysis["Coverage Percentage"] < 100)])
         insufficient_coverage = len(filtered_analysis[filtered_analysis["Coverage Percentage"] < 50])
         critical_components = len(filtered_analysis[filtered_analysis["Priority"] == "🔥 عاجل"])
+
+        # إضافة إحصائيات التغطية إلى الملخص
+        coverage_stats = [
+            ["", "", ""],
+            ["📈 إحصائيات نسبة التغطية", "", ""],
+            ["🟢 مكونات ذات تغطية كافية", sufficient_coverage, f"{(sufficient_coverage/total_components*100):.1f}%"],
+            ["🟡 مكونات ذات تغطية جزئية", partial_coverage, f"{(partial_coverage/total_components*100):.1f}%"],
+            ["🔴 مكونات ذات تغطية غير كافية", insufficient_coverage, f"{(insufficient_coverage/total_components*100):.1f}%"],
+            ["🔥 مكونات حرجة تحتاج اهتمام عاجل", critical_components, ""]
+        ]
+        
+        # إضافة إحصائيات التغطية إلى DataFrame الملخص
+        coverage_df = pd.DataFrame(coverage_stats, columns=["البند", "القيمة", "ملاحظات"])
+        summary_df = pd.concat([summary_df, coverage_df], ignore_index=True)
 
         st.markdown(f"""
         <div style="direction:rtl; text-align:right; font-size:18px;">
@@ -574,36 +611,34 @@ if uploaded_file:
         # زر إنشاء النسخة 
         # -------------------------------
         if st.button("🗜️ اضغط هنا لإنشاء النسخة الكاملة"):
-            current_date = datetime.datetime.now().strftime("%d_%b_%Y")
+            # إضافة مؤشر التقدم هنا
+            with st.spinner('⏳ جاري إنشاء الملفات وتجهيزها للتحميل...'):
+                current_date = datetime.datetime.now().strftime("%d_%b_%Y")
 
-            excel_buffer = BytesIO()
-            with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
-                plan_df.to_excel(writer, sheet_name="Plan", index=False)
-                pivot_by_date.to_excel(writer, sheet_name="Need_By_Date", index=False)
-                pivot_by_order.to_excel(writer, sheet_name="Need_By_Order Type", index=False)
-                component_analysis.to_excel(writer, sheet_name="Stock_Coverage_Analysis", index=False)
-                component_bom_pivot.reset_index().to_excel(writer, sheet_name="Component_in_BOMs", index=False)
-                component_df.to_excel(writer, sheet_name="Component", index=False)
-                if not mrp_df.empty:
-                    mrp_df.to_excel(writer, sheet_name="MRP Contor", index=False)
-            excel_buffer.seek(0)
+                excel_buffer = BytesIO()
+                with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+                    # إضافة شيت الملخص أولاً
+                    summary_df.to_excel(writer, sheet_name="ملخص_النتائج", index=False)
+                    plan_df.to_excel(writer, sheet_name="Plan", index=False)
+                    pivot_by_date.to_excel(writer, sheet_name="Need_By_Date", index=False)
+                    pivot_by_order.to_excel(writer, sheet_name="Need_By_Order Type", index=False)
+                    component_analysis.to_excel(writer, sheet_name="Stock_Coverage_Analysis", index=False)
+                    component_bom_pivot.reset_index().to_excel(writer, sheet_name="Component_in_BOMs", index=False)
+                    component_df.to_excel(writer, sheet_name="Component", index=False)
+                    if not mrp_df.empty:
+                        mrp_df.to_excel(writer, sheet_name="MRP Contor", index=False)
+                excel_buffer.seek(0)
 
-#            zip_buffer = BytesIO()
-         #   with zipfile.ZipFile(zip_buffer, "w") as zipf:
-          #      zipf.writestr(f"All_Component_Results_{current_date}.xlsx", excel_buffer.getvalue())
-           # zip_buffer.seek(0)
+                st.subheader("🔥 تحميل النسخة الإكسل الكاملة ")
+                st.download_button(
+                    label=" 📊  تحميل ملف الإكسل",
+                    data=excel_buffer, 
+                    file_name=f"All_Component_Results_{current_date}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+                st.balloons()
 
-            st.subheader("🔥 تحميل النسخة الإكسل الكاملة ")
-            st.download_button(
-                label=" 📊  تحميل ملف الإكسل",
-             #   data=zip_buffer,
-                data=excel_buffer, 
-                file_name=f"All_Component_Results_{current_date}.xlsx",
-#                mime="application/zip"
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-            st.balloons()
-            st.success("✅ تم إنشاء النسخة الكاملة بنجاح، وجميع الشيتات موجودة داخل Excel")
+                st.success("✅ تم إنشاء النسخة الكاملة بنجاح، وجميع الشيتات موجودة داخل Excel")
 
 # --- التذييل ---
 st.markdown(
@@ -615,11 +650,3 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
-
-
-
-
-
-
-
-
