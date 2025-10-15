@@ -618,8 +618,9 @@ if uploaded_file:
                 excel_buffer = BytesIO()
                 with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
                     # إضافة شيت الملخص أولاً
-                    summary_df.to_excel(writer, sheet_name="ملخص_النتائج", index=False)
+
                     plan_df.to_excel(writer, sheet_name="Plan", index=False)
+                    summary_df.to_excel(writer, sheet_name="Summary", index=False)
                     pivot_by_date.to_excel(writer, sheet_name="Need_By_Date", index=False)
                     pivot_by_order.to_excel(writer, sheet_name="Need_By_Order Type", index=False)
                     component_analysis.to_excel(writer, sheet_name="Stock_Coverage_Analysis", index=False)
@@ -650,3 +651,4 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
+
