@@ -630,7 +630,7 @@ if uploaded_file:
                         mrp_df.to_excel(writer, sheet_name="MRP Contor", index=False)
                 excel_buffer.seek(0)
 
-                st.subheader("🔥 تحميل النسخة الإكسل الكاملة ")
+                st.subheader("🔥 أضغط هنا لتحميل النسخة الإكسل الكاملة ")
                 st.download_button(
                     label=" 📊  تحميل ملف الإكسل",
                     data=excel_buffer, 
@@ -651,4 +651,5 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
+
 
