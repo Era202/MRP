@@ -602,7 +602,7 @@ if uploaded_file:
 #                mime="application/zip"
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
-
+            st.balloons()
             st.success("✅ تم إنشاء النسخة الكاملة بنجاح، وجميع الشيتات موجودة داخل Excel")
 
 # --- التذييل ---
@@ -615,6 +615,7 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
+
 
 
 
